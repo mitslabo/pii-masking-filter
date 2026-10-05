@@ -958,16 +958,12 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "ja-core-news-lg" },
     { name = "presidio-analyzer" },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "spacy" },
     { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.optional-dependencies]
-model = [
-    { name = "ja-core-news-lg" },
 ]
 
 [package.dev-dependencies]
@@ -979,14 +975,13 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "ja-core-news-lg", marker = "extra == 'model'", url = "https://github.com/explosion/spacy-models/releases/download/ja_core_news_lg-3.8.0/ja_core_news_lg-3.8.0-py3-none-any.whl" },
+    { name = "ja-core-news-lg", url = "https://github.com/explosion/spacy-models/releases/download/ja_core_news_lg-3.8.0/ja_core_news_lg-3.8.0-py3-none-any.whl" },
     { name = "presidio-analyzer", specifier = ">=2.2.354" },
     { name = "pydantic", specifier = ">=2.7.0" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "spacy", specifier = ">=3.8.0,<3.9" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
 ]
-provides-extras = ["model"]
 
 [package.metadata.requires-dev]
 dev = [

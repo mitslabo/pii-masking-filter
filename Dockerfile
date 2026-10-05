@@ -10,7 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --no-dev --extra model --no-cache
+RUN uv sync --locked --no-dev --no-cache
 
 COPY app.py ./
 COPY pii_masking ./pii_masking

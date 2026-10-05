@@ -15,7 +15,7 @@ Microsoft Presidioを利用した、日本語の個人情報（PII）をマス�
 ## ローカルでの起動
 
 ```bash
-uv sync --locked --extra model
+uv sync --locked
 uv run --no-sync uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
@@ -23,12 +23,11 @@ Python 3.10以上と [uv](https://docs.astral.sh/uv/getting-started/installation
 リポジトリのルートで実行してください。仮想環境 `.venv` はuvが作成します。
 依存定義は `pyproject.toml`、解決済みのバージョンは `uv.lock` で管理し、
 requirements.txt は使用しません。依存を変更した場合は `uv lock` でロックを更新してください。
-`--extra model` はspaCy日本語モデル `ja_core_news_lg` も事前インストールします。
+spaCy日本語モデル `ja_core_news_lg` は必須依存として `uv sync` で事前インストールします。
 開発時は起動コマンドに `--reload` を追加できます。
 リクエスト処理中にモデルをダウンロードすることはありません。
 依存パッケージとモデルのインストールにはインターネット接続が必要です。
 インストール後は上記の `uv run --no-sync` で依存の再同期をせず、オフラインで起動できます。
-後で `uv sync` を実行する際も、モデルを残すには `--extra model` を指定してください。
 
 ## Dockerでの起動
 
@@ -149,8 +148,8 @@ uv run --no-sync python -m pytest -q
 
 テストでは重いspaCyモデルの読み込みだけを置き換え、APIと実際のPresidio認識器を検証します。
 `--frozen` はコミット済みの `uv.lock` をそのまま使用します。
-モデルのダウンロードは不要です。インストール済みの日本語モデルも確認する場合は、
-`uv sync --locked --extra model` を実行し、サーバーを起動して上記の使用例を実行してください。
+依存同期時には必須の日本語モデルもインストールしますが、通常のテストでは読み込みません。
+実際の日本語モデルも確認する場合は、サーバーを起動して上記の使用例を実行してください。
 
 ローカルまたはComposeで起動済みのサーバーを検証する場合は、
 電話番号とメールアドレスのフィルタを有効にして次を実行してください。
