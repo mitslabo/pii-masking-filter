@@ -15,17 +15,44 @@ Microsoft Presidioを利用した、日本語の個人情報（PII）をマス�
 ## ローカルでの起動
 
 ```bash
-python -m venv .venv
-. .venv/bin/activate
-pip install -r requirements.txt
-python -m spacy download ja_core_news_lg
-python -m uvicorn app:app --host 127.0.0.1 --port 8000
+uv sync --locked
+uv run --no-sync uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
-Python 3.10以上を使用し、リポジトリのルートで実行してください。
-開発時は `--reload` を追加できます。日本語モデルは事前に明示的にインストールします。
+Python 3.10以上と [uv](https://docs.astral.sh/uv/getting-started/installation/) を使用し、
+リポジトリのルートで実行してください。仮想環境 `.venv` はuvが作成します。
+依存定義は `pyproject.toml`、解決済みのバージョンは `uv.lock` で管理し、
+requirements.txt は使用しません。依存を変更した場合は `uv lock` でロックを更新してください。
+spaCy日本語モデル `ja_core_news_lg` は必須依存として `uv sync` で事前インストールします。
+開発時は起動コマンドに `--reload` を追加できます。
 リクエスト処理中にモデルをダウンロードすることはありません。
-依存パッケージとモデルのインストール後は、インターネット接続なしで動作します。
+依存パッケージとモデルのインストールにはインターネット接続が必要です。
+インストール後は上記の `uv run --no-sync` で依存の再同期をせず、オフラインで起動できます。
+
+## Dockerでの起動
+
+DockerとDocker Composeを使用し、リポジトリのルートで実行してください。
+
+```bash
+docker compose up --build --wait
+curl http://127.0.0.1:8000/health
+```
+
+`POST /mask` も以下の使用例で確認できます。停止する場合は `docker compose down` を実行してください。
+ビルド時に依存と日本語モデルをインストールするため、インターネット接続が必要です。
+ビルド済みのイメージは実行時にダウンロードせず、非rootユーザーで起動します。
+開発用reloadは有効にしていません。Composeはポート8000をローカルホストだけに公開します。
+設定は `compose.yml` の `environment` で指定してください。
+`PII_FILTERS` のコメントを外すと、電話番号とメールアドレスだけを対象にできます。
+ホストの `.env` はイメージに含めず、コンテナにも自動転送しません
+（Composeの変数展開に使う `PII_SCORE_THRESHOLD` は除きます）。
+
+Dockerfileだけで起動する場合:
+
+```bash
+docker build -t pii-masking-filter .
+docker run --rm -p 127.0.0.1:8000:8000 pii-masking-filter
+```
 
 ## 使用例
 
@@ -81,7 +108,7 @@ PII_SCORE_THRESHOLD=0.4
 環境変数で指定する場合:
 
 ```bash
-PII_FILTERS=PHONE_NUMBER,EMAIL_ADDRESS python -m uvicorn app:app --host 127.0.0.1 --port 8000
+PII_FILTERS=PHONE_NUMBER,EMAIL_ADDRESS uv run --no-sync uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
 | フィルタ名 | 対象 |
@@ -115,12 +142,22 @@ PII_FILTERS=PHONE_NUMBER,EMAIL_ADDRESS python -m uvicorn app:app --host 127.0.0.
 ## テスト
 
 ```bash
-python -m pytest -q
+uv sync --frozen
+uv run --no-sync python -m pytest -q
 ```
 
 テストでは重いspaCyモデルの読み込みだけを置き換え、APIと実際のPresidio認識器を検証します。
-モデルのダウンロードは不要です。インストール済みの日本語モデルも確認する場合は、
-サーバーを起動して上記の使用例を実行してください。
+`--frozen` はコミット済みの `uv.lock` をそのまま使用します。
+依存同期時には必須の日本語モデルもインストールしますが、通常のテストでは読み込みません。
+実際の日本語モデルも確認する場合は、サーバーを起動して上記の使用例を実行してください。
+
+ローカルまたはComposeで起動済みのサーバーを検証する場合は、
+電話番号とメールアドレスのフィルタを有効にして次を実行してください。
+`PII_TEST_URL` を指定しない通常のテストでは、このスモークテストはスキップされます。
+
+```bash
+PII_TEST_URL=http://127.0.0.1:8000 uv run --no-sync python -m pytest -q tests/test_runtime.py
+```
 
 ## デプロイとプライバシー
 
