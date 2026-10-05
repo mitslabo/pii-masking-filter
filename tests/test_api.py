@@ -48,9 +48,20 @@ def test_mask_without_pii(client):
     }
 
 
+def test_mask_accepts_maximum_length(monkeypatch):
+    masker = Mock()
+    masker.mask.return_value = Mock(masked_text="", has_pii=False, entities=[])
+    monkeypatch.setattr(api, "get_masker", lambda: masker)
+    text = "x" * 1_048_576
+    with TestClient(api.app) as client:
+        response = client.post("/mask", json={"text": text})
+    assert response.status_code == 200
+    masker.mask.assert_called_once_with(text)
+
+
 @pytest.mark.parametrize("payload", [
     {}, {"text": ""}, {"text": None}, {"text": 123},
-    {"text": ["taro@example.com"]}, {"text": "a" * 100_001},
+    {"text": ["taro@example.com"]}, {"text": "a" * 1_048_577},
     {"text": "hello", "extra": "taro@example.com"},
     ["taro@example.com"],
 ])

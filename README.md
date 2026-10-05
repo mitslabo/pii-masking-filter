@@ -47,7 +47,7 @@ curl -X POST http://127.0.0.1:8000/mask \
 not a model-readiness check. Only these two routes are exposed; interactive
 documentation and the OpenAPI endpoint are disabled.
 
-`POST /mask` accepts one string field, `text`, of 1–100,000 characters.
+`POST /mask` accepts one string field, `text`, of 1–1,048,576 characters.
 Unknown fields and invalid/malformed requests return HTTP 422 with
 `{"detail":"invalid_request"}`. A missing model or invalid configuration returns
 HTTP 503 with `{"detail":"masker_unavailable"}`; processing failures return
