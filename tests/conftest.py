@@ -5,6 +5,14 @@ import spacy
 from presidio_analyzer.nlp_engine import NlpArtifacts, NlpEngine, NlpEngineProvider
 
 from pii_masking.masker import JapanesePiiMasker
+import pii_masking.config as config
+
+
+@pytest.fixture(autouse=True)
+def isolated_settings(monkeypatch, tmp_path):
+    for name in ("SPACY_MODEL", "PII_SCORE_THRESHOLD", "PII_FILTERS"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(config, "DOTENV_PATH", tmp_path / ".env")
 
 
 @pytest.fixture
@@ -15,6 +23,7 @@ def masker(monkeypatch):
     nlp_engine.is_loaded.return_value = True
     nlp_engine.get_supported_languages.return_value = ["ja"]
     nlp_engine.get_supported_entities.return_value = []
+    nlp_engine.nlp = {"ja": tokenizer}
 
     def process_text(text, language):
         tokens = tokenizer(text)

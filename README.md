@@ -1,18 +1,18 @@
 # pii-masking-filter
 
-A REST API server for Japanese PII masking based on Microsoft Presidio.
+Microsoft Presidioを利用した、日本語の個人情報（PII）をマスキングするREST APIサーバーです。
 
-The masking components in `pii_masking/` are adapted from
+`pii_masking/` のマスキング処理は、
 [`kouki6951/pii-masking-chat`](https://github.com/kouki6951/pii-masking-chat/tree/main/pii_chat).
-This product contains only masking: no conversational UI, external AI API, or
-reversible mapping of original PII.
+の実装を移植しています。マスキング専用であり、チャットUI、外部AI API、
+元の個人情報に戻すための対応表は含みません。
 
-## Endpoints
+## エンドポイント
 
-- `GET /health` — health check
-- `POST /mask` — mask Japanese PII in the submitted text
+- `GET /health` — 稼働確認
+- `POST /mask` — 送信されたテキスト内の日本語PIIをマスキング
 
-## Local run
+## ローカルでの起動
 
 ```bash
 python -m venv .venv
@@ -22,12 +22,12 @@ python -m spacy download ja_core_news_lg
 python -m uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
-Run these commands from the repository root with Python 3.10 or newer.
-For development, add `--reload`. The Japanese model is installed explicitly;
-the server never downloads it while processing a request. Internet access is
-not needed after dependencies and the model have been installed.
+Python 3.10以上を使用し、リポジトリのルートで実行してください。
+開発時は `--reload` を追加できます。日本語モデルは事前に明示的にインストールします。
+リクエスト処理中にモデルをダウンロードすることはありません。
+依存パッケージとモデルのインストール後は、インターネット接続なしで動作します。
 
-## Example
+## 使用例
 
 ```bash
 curl -X POST http://127.0.0.1:8000/mask \
@@ -43,54 +43,98 @@ curl -X POST http://127.0.0.1:8000/mask \
 }
 ```
 
-`GET /health` returns `{"status":"ok"}` (HTTP 200). It is a liveness check,
-not a model-readiness check. Only these two routes are exposed; interactive
-documentation and the OpenAPI endpoint are disabled.
+`GET /health` は `{"status":"ok"}`（HTTP 200）を返します。プロセスの稼働確認用であり、
+モデルが利用可能かどうかは確認しません。公開するルートはこの2つのみです。
+対話型APIドキュメントとOpenAPIエンドポイントは無効にしています。
 
-`POST /mask` accepts one string field, `text`, of 1–100,000 characters.
-Unknown fields and invalid/malformed requests return HTTP 422 with
-`{"detail":"invalid_request"}`. A missing model or invalid configuration returns
-HTTP 503 with `{"detail":"masker_unavailable"}`; processing failures return
-HTTP 500 with `{"detail":"masking_failed"}`. Errors never include submitted text.
+`POST /mask` は文字列フィールド `text` のみを受け付けます。
+長さは1〜1,048,576文字（1M＝1024²）です。バイト数ではなく文字数の上限です。
+不明なフィールドや不正な入力・JSONには、HTTP 422と `{"detail":"invalid_request"}` を返します。
+モデルの未インストールや不正な設定には、HTTP 503と `{"detail":"masker_unavailable"}` を返します。
+処理に失敗した場合は、HTTP 500と `{"detail":"masking_failed"}` を返します。
+エラーレスポンスに送信されたテキストを含めることはありません。
 
-Placeholders use Japanese labels and per-request numbering. Repeated values
-of the same entity type share a placeholder; `entity_count` counts detected
-occurrences, not unique values. Text without detected PII is returned unchanged.
-Supported detection includes names, locations and organizations (spaCy NER),
-email, phone, postal/address, personal number, passport, driver's license, bank
-account, credit card, IP address and URL patterns.
+置換文字列は日本語ラベルとリクエスト内の連番で構成されます。
+同じ種類・値のPIIには同じ置換文字列を使います。
+`entity_count` は異なる値の数ではなく、検出された出現箇所の数です。
+PIIが検出されなかったテキストは、そのまま返します。
 
-## Configuration
+## 設定とフィルタの選択
 
-- `SPACY_MODEL`: installed Japanese spaCy package (default `ja_core_news_lg`).
-- `PII_SCORE_THRESHOLD`: detection score from 0 to 1 (default `0.4`).
+リポジトリのルートに置いた `.env` または環境変数で設定します。
+両方に同じ設定がある場合は、環境変数を優先します。`.env` はGitの管理対象外です。
 
-The model is loaded lazily once per worker and shared across requests. The first
-mask request can be slow; send a synthetic `/mask` request before routing traffic
-to a worker. Each additional worker needs its own model memory.
+- `SPACY_MODEL`: インストール済みの日本語spaCyモデル（既定値: `ja_core_news_lg`）。
+- `PII_SCORE_THRESHOLD`: 検出スコアの閾値。0〜1（既定値: `0.4`）。
+- `PII_FILTERS`: 適用するPII種別をカンマ区切りで指定します。
+  未設定の場合は従来どおり全フィルタを適用します。名前は下表の大文字表記で指定してください。
+  空文字、不明な種別、末尾のカンマなどは設定エラーとなります。
 
-## Tests
+例えば、電話番号とメールアドレスだけを対象にする `.env` は次のとおりです。
+
+```dotenv
+PII_FILTERS=PHONE_NUMBER,EMAIL_ADDRESS
+SPACY_MODEL=ja_core_news_lg
+PII_SCORE_THRESHOLD=0.4
+```
+
+環境変数で指定する場合:
+
+```bash
+PII_FILTERS=PHONE_NUMBER,EMAIL_ADDRESS python -m uvicorn app:app --host 127.0.0.1 --port 8000
+```
+
+| フィルタ名 | 対象 |
+| --- | --- |
+| `PERSON` | 氏名（spaCy NER・敬称パターン） |
+| `LOCATION` | 地名 |
+| `ORGANIZATION` | 組織名 |
+| `NRP` | 国籍・宗教・政治的集団 |
+| `DATE_TIME` | 日時 |
+| `EMAIL_ADDRESS` | メールアドレス |
+| `PHONE_NUMBER` | 電話番号 |
+| `CREDIT_CARD` | クレジットカード番号 |
+| `IP_ADDRESS` | IPアドレス |
+| `URL` | URL |
+| `JP_MY_NUMBER` | マイナンバー |
+| `JP_POSTAL_CODE` | 郵便番号 |
+| `JP_ADDRESS` | 住所 |
+| `JP_PASSPORT` | パスポート番号 |
+| `JP_DRIVERS_LICENSE` | 運転免許証番号 |
+| `JP_BANK_ACCOUNT` | 銀行口座番号 |
+
+**選択しなかった種類のPIIはマスキングされず、レスポンスに残ります。**
+フィルタの選択はリクエストごとではなく、サーバー全体に適用されます。
+設定を変更した場合はサーバーを再起動してください。
+
+モデルと設定は、最初のマスキング時にワーカーごとに1回読み込み、以後再利用します。
+初回のリクエストは遅くなる場合があるため、実際のトラフィックを流す前に
+架空のテキストで `/mask` を呼び出してください。ワーカーを増やすと、
+それぞれにモデル用のメモリが必要です。大きな入力ほど処理時間とメモリ消費が増えます。
+
+## テスト
 
 ```bash
 python -m pytest -q
 ```
 
-Tests exercise the API and real Presidio recognizers while bypassing the heavy
-spaCy model. They need no model download. To check the installed model as well,
-start the server and run the example request above.
+テストでは重いspaCyモデルの読み込みだけを置き換え、APIと実際のPresidio認識器を検証します。
+モデルのダウンロードは不要です。インストール済みの日本語モデルも確認する場合は、
+サーバーを起動して上記の使用例を実行してください。
 
-## Deployment and privacy
+## デプロイとプライバシー
 
-There is no application logging of request bodies, original PII, or reversible
-mappings. Validation and processing errors are sanitized. Default Uvicorn access
-logs contain paths and status codes, not bodies; never submit PII in URLs or query
-parameters. Configure reverse proxies/observability tools not to capture bodies.
+アプリケーションはリクエスト本文、元のPII、復元用の対応表をログに記録しません。
+入力検証や処理のエラーにもPIIを含めません。Uvicornの標準アクセスログには、
+本文ではなくパスとステータスコードが記録されます。
+URLやクエリパラメータにはPIIを含めないでください。
+リバースプロキシや監視ツールでも、本文を記録しないよう設定してください。
 
-Use a trusted network or an authenticated, TLS-enabled reverse proxy; the API
-itself does not implement authentication. Set request-body size limits, rate
-limits, and timeouts at that boundary (the character limit is validated only
-after JSON parsing). Do not use development reload in production.
+API自体に認証機能はありません。信頼できるネットワーク内、または認証・TLSを備えた
+リバースプロキシの背後で使用してください。プロキシ側でリクエスト本文のサイズ制限、
+レート制限、タイムアウトを設定してください。文字数の上限はJSON解析後に検証されるため、
+本文のサイズ制限の代わりにはなりません。本番では開発用の `--reload` を使用しないでください。
 
-Detection is heuristic and cannot guarantee that every PII value is removed.
-Review accuracy on representative Japanese text before using output as anonymized
-data; undetected PII remains in `masked_text`.
+検出はルールやモデルによる推定であり、すべてのPIIを除去できる保証はありません。
+匿名化データとして利用する前に、実際の用途に近い日本語テキストで精度を確認してください。
+検出されなかったPIIは `masked_text` に残ります。

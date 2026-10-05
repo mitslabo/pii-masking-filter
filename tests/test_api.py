@@ -50,7 +50,7 @@ def test_mask_without_pii(client):
 
 @pytest.mark.parametrize("payload", [
     {}, {"text": ""}, {"text": None}, {"text": 123},
-    {"text": ["taro@example.com"]}, {"text": "a" * 100_001},
+    {"text": ["taro@example.com"]}, {"text": "a" * (1024 ** 2 + 1)},
     {"text": "hello", "extra": "taro@example.com"},
     ["taro@example.com"],
 ])
@@ -101,3 +101,23 @@ def test_only_public_endpoints():
     assert {(route.path, frozenset(route.methods)) for route in api.app.routes} == {
         ("/health", frozenset({"GET"})), ("/mask", frozenset({"POST"})),
     }
+
+
+@pytest.mark.parametrize("length", [100_001, 1024 ** 2])
+def test_text_length_accepted(client, monkeypatch, length):
+    text = "あ" * length
+    masker = Mock()
+    masker.mask.return_value = Mock(masked_text=text, has_pii=False, entities=[])
+    monkeypatch.setattr(api, "get_masker", lambda: masker)
+    response = client.post("/mask", json={"text": text})
+    assert response.status_code == 200
+    assert response.json()["masked_text"] == text
+    masker.mask.assert_called_once_with(text)
+
+
+def test_invalid_filter_configuration_returns_503(client, monkeypatch):
+    monkeypatch.setenv("PII_FILTERS", "UNKNOWN")
+    monkeypatch.setattr(api, "get_masker", api.JapanesePiiMasker)
+    response = client.post("/mask", json={"text": "taro@example.com"})
+    assert response.status_code == 503
+    assert response.json() == {"detail": "masker_unavailable"}

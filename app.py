@@ -5,6 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from pii_masking.config import MAX_TEXT_LENGTH
 from pii_masking.masker import JapanesePiiMasker, get_masker
 
 app = FastAPI(
@@ -16,7 +17,7 @@ app = FastAPI(
 class MaskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text: str = Field(
-        min_length=1, max_length=100_000, strict=True, description="Text to mask"
+        min_length=1, max_length=MAX_TEXT_LENGTH, strict=True, description="Text to mask"
     )
 
 

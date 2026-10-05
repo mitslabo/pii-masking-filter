@@ -1,5 +1,29 @@
 """Masking labels and NER exclusions ported from kouki6951/pii-masking-chat."""
 
+import os
+from pathlib import Path
+
+from dotenv import dotenv_values
+
+MAX_TEXT_LENGTH = 1024 ** 2
+DOTENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+
+
+def load_settings() -> dict[str, str | None]:
+    """Read repository-local .env; explicit environment variables take priority."""
+    return {**dotenv_values(DOTENV_PATH, interpolate=False), **os.environ}
+
+
+def parse_filters(value: str | None) -> list[str] | None:
+    """None enables all filters; empty or unknown selections fail closed."""
+    if value is None:
+        return None
+    filters = list(dict.fromkeys(part.strip() for part in value.split(",")))
+    if not filters or any(entity not in ENTITY_LABELS_JA for entity in filters):
+        raise ValueError("PII_FILTERS must contain supported entity types")
+    return filters
+
+
 ENTITY_LABELS_JA = {
     "PERSON": "氏名",
     "LOCATION": "地名",

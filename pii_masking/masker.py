@@ -6,7 +6,6 @@ does not retain original values or reversible mappings in results.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from threading import Lock
 
@@ -17,7 +16,10 @@ from presidio_analyzer.predefined_recognizers import (
     IpRecognizer, SpacyRecognizer, UrlRecognizer,
 )
 
-from .config import DENYLIST_ENTITIES, ENTITY_LABELS_JA, NER_DENYLIST
+from .config import (
+    DENYLIST_ENTITIES, ENTITY_LABELS_JA, MAX_TEXT_LENGTH, NER_DENYLIST,
+    load_settings, parse_filters,
+)
 from .japanese_recognizers import get_japanese_recognizers
 
 
@@ -48,13 +50,15 @@ class JapanesePiiMasker:
     def __init__(
         self, spacy_model: str | None = None, score_threshold: float | None = None
     ) -> None:
-        self.spacy_model = spacy_model or os.environ.get("SPACY_MODEL", "ja_core_news_lg")
+        settings = load_settings()
+        self.spacy_model = spacy_model or settings.get("SPACY_MODEL") or "ja_core_news_lg"
         self.score_threshold = (
             score_threshold if score_threshold is not None
-            else float(os.environ.get("PII_SCORE_THRESHOLD", "0.4"))
+            else float(settings.get("PII_SCORE_THRESHOLD") or "0.4")
         )
         if not 0 <= self.score_threshold <= 1:
             raise ValueError("PII_SCORE_THRESHOLD must be between 0 and 1")
+        self.filters = parse_filters(settings.get("PII_FILTERS"))
         self._analyzer = self._build_analyzer()
 
     def _build_analyzer(self) -> AnalyzerEngine:
@@ -65,6 +69,9 @@ class JapanesePiiMasker:
             "nlp_engine_name": "spacy",
             "models": [{"lang_code": "ja", "model_name": self.spacy_model}],
         }).create_engine()
+        # spaCy's default limit is 1,000,000, below the API's 1 Mi-character limit.
+        pipeline = nlp_engine.nlp["ja"]
+        pipeline.max_length = max(pipeline.max_length, MAX_TEXT_LENGTH)
         registry = RecognizerRegistry(supported_languages=["ja"])
         registry.add_recognizer(SpacyRecognizer(supported_language="ja"))
         registry.add_recognizer(IpRecognizer(supported_language="ja"))
@@ -97,7 +104,8 @@ class JapanesePiiMasker:
 
     def mask(self, text: str) -> MaskResult:
         results = self._analyzer.analyze(
-            text=text, language="ja", score_threshold=self.score_threshold
+            text=text, language="ja", score_threshold=self.score_threshold,
+            entities=self.filters,
         )
         results = [
             result for result in results
