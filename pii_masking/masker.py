@@ -6,6 +6,7 @@ does not retain original values or reversible mappings in results.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from threading import Lock
 
@@ -21,6 +22,25 @@ from .config import (
     load_settings, parse_filters,
 )
 from .japanese_recognizers import get_japanese_recognizers
+
+
+_CHUNK_TARGET_BYTES = 32 * 1024
+
+
+def _iter_text_chunks(text: str) -> Iterator[str]:
+    """Keep complete lines, including single lines larger than the byte target."""
+    lines = []
+    size = 0
+    for line in text.splitlines(keepends=True):
+        line_size = len(line.encode("utf-8"))
+        if lines and size + line_size > _CHUNK_TARGET_BYTES:
+            yield "".join(lines)
+            lines = []
+            size = 0
+        lines.append(line)
+        size += line_size
+    if lines:
+        yield "".join(lines)
 
 
 @dataclass(frozen=True)
@@ -103,39 +123,42 @@ class JapanesePiiMasker:
         return sorted(chosen, key=lambda result: result.start)
 
     def mask(self, text: str) -> MaskResult:
-        results = self._analyzer.analyze(
-            text=text, language="ja", score_threshold=self.score_threshold,
-            entities=self.filters,
-        )
-        results = [
-            result for result in results
-            if not (
-                result.entity_type in DENYLIST_ENTITIES
-                and text[result.start:result.end] in NER_DENYLIST
-            )
-        ]
         counters: dict[str, int] = {}
         value_to_token: dict[tuple[str, str], str] = {}
         pieces = []
         entities = []
-        last = 0
-        for result in self._resolve_overlaps(results):
-            original = text[result.start:result.end]
-            label = ENTITY_LABELS_JA.get(result.entity_type, result.entity_type)
-            key = (result.entity_type, original)
-            token = value_to_token.get(key)
-            if token is None:
-                counters[label] = counters.get(label, 0) + 1
-                token = f"<{label}_{counters[label]}>"
-                value_to_token[key] = token
-            pieces.extend((text[last:result.start], token))
-            last = result.end
-            entities.append(DetectedEntity(
-                entity_type=result.entity_type,
-                start=result.start, end=result.end,
-                score=round(result.score, 3), placeholder=token,
-            ))
-        pieces.append(text[last:])
+        offset = 0
+        for chunk in _iter_text_chunks(text):
+            results = self._analyzer.analyze(
+                text=chunk, language="ja", score_threshold=self.score_threshold,
+                entities=self.filters,
+            )
+            results = [
+                result for result in results
+                if not (
+                    result.entity_type in DENYLIST_ENTITIES
+                    and chunk[result.start:result.end] in NER_DENYLIST
+                )
+            ]
+            last = 0
+            for result in self._resolve_overlaps(results):
+                original = chunk[result.start:result.end]
+                label = ENTITY_LABELS_JA.get(result.entity_type, result.entity_type)
+                key = (result.entity_type, original)
+                token = value_to_token.get(key)
+                if token is None:
+                    counters[label] = counters.get(label, 0) + 1
+                    token = f"<{label}_{counters[label]}>"
+                    value_to_token[key] = token
+                pieces.extend((chunk[last:result.start], token))
+                last = result.end
+                entities.append(DetectedEntity(
+                    entity_type=result.entity_type,
+                    start=offset + result.start, end=offset + result.end,
+                    score=round(result.score, 3), placeholder=token,
+                ))
+            pieces.append(chunk[last:])
+            offset += len(chunk)
         return MaskResult(masked_text="".join(pieces), entities=entities)
 
 

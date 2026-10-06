@@ -4,7 +4,5 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
-    environment:
-      SPACY_MODEL: ja_core_news_lg
-      PII_SCORE_THRESHOLD: "${PII_SCORE_THRESHOLD:-0.4}"
-      # PII_FILTERS: PHONE_NUMBER,EMAIL_ADDRESS
+    env_file:
+      - .env

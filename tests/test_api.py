@@ -3,6 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
+from presidio_analyzer import RecognizerResult
 
 import app as api
 
@@ -46,6 +47,36 @@ def test_mask_without_pii(client):
     assert response.json() == {
         "masked_text": "こんにちは。", "has_pii": False, "entity_count": 0
     }
+
+
+def test_mask_multiple_chunks(client):
+    padding = "あ" * 6000 + " "
+    response = client.post("/mask", json={
+        "text": padding + "a@example.com\r\n\r\n"
+        + padding + "b@example.com\n" + padding + "a@example.com",
+    })
+    assert response.status_code == 200
+    assert response.json() == {
+        "masked_text": padding + "<メールアドレス_1>\r\n\r\n"
+        + padding + "<メールアドレス_2>\n" + padding + "<メールアドレス_1>",
+        "has_pii": True,
+        "entity_count": 3,
+    }
+
+
+def test_later_chunk_failure_is_private(client, masker, caplog):
+    masker._analyzer = Mock()
+    masker._analyzer.analyze.side_effect = [
+        [RecognizerResult("EMAIL_ADDRESS", 0, 13, 0.9)],
+        RuntimeError("PII: a@example.com"),
+    ]
+    line = "a@example.com " + "あ" * 6000 + "\n"
+    with caplog.at_level(logging.DEBUG):
+        response = client.post("/mask", json={"text": line * 3})
+    assert response.status_code == 500
+    assert response.json() == {"detail": "masking_failed"}
+    assert masker._analyzer.analyze.call_count == 2
+    assert "a@example.com" not in caplog.text
 
 
 @pytest.mark.parametrize("payload", [
