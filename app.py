@@ -1,16 +1,36 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+from secrets import compare_digest
+
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 
-from pii_masking.config import MAX_TEXT_LENGTH
+from pii_masking.config import MAX_TEXT_LENGTH, load_settings
 from pii_masking.masker import JapanesePiiMasker, get_masker
+
+
+def require_api_key(
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
+) -> None:
+    api_key = load_settings().get("API_KEY")
+    if not api_key:
+        return
+    if credentials is None or not compare_digest(
+        credentials.credentials.encode("utf-8"), api_key.encode("utf-8"),
+    ):
+        raise HTTPException(
+            status_code=401, detail="unauthorized",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
 
 app = FastAPI(
     title="pii-masking-filter", version="0.1.0",
     docs_url=None, redoc_url=None, openapi_url=None,
+    dependencies=[Depends(require_api_key)],
 )
 
 

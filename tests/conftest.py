@@ -10,7 +10,7 @@ import pii_masking.config as config
 
 @pytest.fixture(autouse=True)
 def isolated_settings(monkeypatch, tmp_path):
-    for name in ("SPACY_MODEL", "PII_SCORE_THRESHOLD", "PII_FILTERS"):
+    for name in ("SPACY_MODEL", "PII_SCORE_THRESHOLD", "PII_FILTERS", "API_KEY"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(config, "DOTENV_PATH", tmp_path / ".env")
 
