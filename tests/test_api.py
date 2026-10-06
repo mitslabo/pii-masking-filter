@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from presidio_analyzer import RecognizerResult
 
 import app as api
+import pii_masking.config as config
 
 
 @pytest.fixture
@@ -23,6 +24,72 @@ def test_health_does_not_load_model(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
     factory.assert_not_called()
+
+
+@pytest.mark.parametrize("path", ["/health", "/mask"])
+@pytest.mark.parametrize("authorization", [
+    None, "", "Bearer", "Bearer ", "Basic test-api-key", "Bearer " + "wrong-key",
+    "Bearer " + "test-api-key extra",
+])
+def test_api_key_rejects_unauthorized_requests(monkeypatch, caplog, path, authorization):
+    monkeypatch.setenv("API_KEY", "test-api-key")
+    factory = Mock()
+    monkeypatch.setattr(api, "get_masker", factory)
+    headers = {} if authorization is None else {"Authorization": authorization}
+    with TestClient(api.app) as client, caplog.at_level(logging.DEBUG):
+        response = client.request(
+            "GET" if path == "/health" else "POST", path,
+            headers=headers, json={"text": "taro@example.com"},
+        )
+    assert response.status_code == 401
+    assert response.json() == {"detail": "unauthorized"}
+    assert response.headers["WWW-Authenticate"] == "Bearer"
+    assert "test-api-key" not in response.text
+    assert "test-api-key" not in caplog.text
+    assert "taro@example.com" not in caplog.text
+    factory.assert_not_called()
+
+
+@pytest.mark.parametrize("scheme", ["Bearer", "bearer", "BEARER"])
+def test_api_key_allows_correct_bearer_token(client, monkeypatch, scheme):
+    monkeypatch.setenv("API_KEY", "test-api-key")
+    headers = {"Authorization": f"{scheme} test-api-key"}
+    assert client.get("/health", headers=headers).json() == {"status": "ok"}
+    response = client.post("/mask", headers=headers, json={"text": "こんにちは。"})
+    assert response.status_code == 200
+    assert response.json()["masked_text"] == "こんにちは。"
+
+
+@pytest.mark.parametrize("key", [None, ""])
+def test_unconfigured_api_key_preserves_anonymous_access(client, monkeypatch, key):
+    if key is not None:
+        monkeypatch.setenv("API_KEY", key)
+    assert client.get("/health").status_code == 200
+    assert client.post("/mask", json={"text": "こんにちは。"}).status_code == 200
+
+
+def test_api_key_dotenv_and_environment_precedence(client, monkeypatch):
+    config.DOTENV_PATH.write_text("API_KEY=dotenv-test-key\n", encoding="utf-8")
+    assert client.get("/health").status_code == 401
+    assert client.get(
+        "/health", headers={"Authorization": "Bearer " + "dotenv-test-key"},
+    ).status_code == 200
+    monkeypatch.setenv("API_KEY", "environment-test-key")
+    assert client.get(
+        "/health", headers={"Authorization": "Bearer " + "dotenv-test-key"},
+    ).status_code == 401
+    assert client.get(
+        "/health", headers={"Authorization": "Bearer " + "environment-test-key"},
+    ).status_code == 200
+    monkeypatch.setenv("API_KEY", "")
+    assert client.get("/health").status_code == 200
+
+
+def test_non_ascii_api_key_fails_closed(client, monkeypatch):
+    monkeypatch.setenv("API_KEY", "テスト用キー")
+    assert client.get(
+        "/health", headers={"Authorization": "Bearer " + "wrong-key"},
+    ).status_code == 401
 
 
 def test_mask_success(client, caplog):

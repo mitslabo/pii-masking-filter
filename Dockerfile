@@ -21,6 +21,6 @@ USER app
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
+    CMD python -c "import urllib.request; from pii_masking.config import load_settings; key = load_settings().get('API_KEY'); request = urllib.request.Request('http://127.0.0.1:8000/health', headers={'Authorization': 'Bearer ' + key} if key else {}); urllib.request.urlopen(request, timeout=3)"
 
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
