@@ -13,6 +13,9 @@ def isolated_settings(monkeypatch, tmp_path):
     for name in ("SPACY_MODEL", "PII_SCORE_THRESHOLD", "PII_FILTERS", "API_KEY"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(config, "DOTENV_PATH", tmp_path / ".env")
+    config.load_settings.cache_clear()
+    yield
+    config.load_settings.cache_clear()
 
 
 @pytest.fixture

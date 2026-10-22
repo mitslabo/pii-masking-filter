@@ -9,6 +9,12 @@ import app as api
 import pii_masking.config as config
 
 
+def reload_api_key(monkeypatch):
+    """Settings are cached per process; re-read them as a fresh start would."""
+    config.load_settings.cache_clear()
+    monkeypatch.setattr(api, "_API_KEY", config.load_settings().get("API_KEY"))
+
+
 @pytest.fixture
 def client(monkeypatch, masker):
     monkeypatch.setattr(api, "get_masker", lambda: masker)
@@ -33,6 +39,7 @@ def test_health_does_not_load_model(monkeypatch):
 ])
 def test_api_key_rejects_unauthorized_requests(monkeypatch, caplog, path, authorization):
     monkeypatch.setenv("API_KEY", "test-api-key")
+    reload_api_key(monkeypatch)
     factory = Mock()
     monkeypatch.setattr(api, "get_masker", factory)
     headers = {} if authorization is None else {"Authorization": authorization}
@@ -53,6 +60,7 @@ def test_api_key_rejects_unauthorized_requests(monkeypatch, caplog, path, author
 @pytest.mark.parametrize("scheme", ["Bearer", "bearer", "BEARER"])
 def test_api_key_allows_correct_bearer_token(client, monkeypatch, scheme):
     monkeypatch.setenv("API_KEY", "test-api-key")
+    reload_api_key(monkeypatch)
     headers = {"Authorization": f"{scheme} test-api-key"}
     assert client.get("/health", headers=headers).json() == {"status": "ok"}
     response = client.post("/mask", headers=headers, json={"text": "こんにちは。"})
@@ -64,17 +72,20 @@ def test_api_key_allows_correct_bearer_token(client, monkeypatch, scheme):
 def test_unconfigured_api_key_preserves_anonymous_access(client, monkeypatch, key):
     if key is not None:
         monkeypatch.setenv("API_KEY", key)
+    reload_api_key(monkeypatch)
     assert client.get("/health").status_code == 200
     assert client.post("/mask", json={"text": "こんにちは。"}).status_code == 200
 
 
 def test_api_key_dotenv_and_environment_precedence(client, monkeypatch):
     config.DOTENV_PATH.write_text("API_KEY=dotenv-test-key\n", encoding="utf-8")
+    reload_api_key(monkeypatch)
     assert client.get("/health").status_code == 401
     assert client.get(
         "/health", headers={"Authorization": "Bearer " + "dotenv-test-key"},
     ).status_code == 200
     monkeypatch.setenv("API_KEY", "environment-test-key")
+    reload_api_key(monkeypatch)
     assert client.get(
         "/health", headers={"Authorization": "Bearer " + "dotenv-test-key"},
     ).status_code == 401
@@ -82,11 +93,13 @@ def test_api_key_dotenv_and_environment_precedence(client, monkeypatch):
         "/health", headers={"Authorization": "Bearer " + "environment-test-key"},
     ).status_code == 200
     monkeypatch.setenv("API_KEY", "")
+    reload_api_key(monkeypatch)
     assert client.get("/health").status_code == 200
 
 
 def test_non_ascii_api_key_fails_closed(client, monkeypatch):
     monkeypatch.setenv("API_KEY", "テスト用キー")
+    reload_api_key(monkeypatch)
     assert client.get(
         "/health", headers={"Authorization": "Bearer " + "wrong-key"},
     ).status_code == 401
@@ -215,6 +228,7 @@ def test_text_length_accepted(client, monkeypatch, length):
 
 def test_invalid_filter_configuration_returns_503(client, monkeypatch):
     monkeypatch.setenv("PII_FILTERS", "UNKNOWN")
+    config.load_settings.cache_clear()
     monkeypatch.setattr(api, "get_masker", api.JapanesePiiMasker)
     response = client.post("/mask", json={"text": "taro@example.com"})
     assert response.status_code == 503
