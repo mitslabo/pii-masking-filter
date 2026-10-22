@@ -10,6 +10,7 @@ def test_default_filters(masker):
 
 def test_environment_filters(masker, monkeypatch):
     monkeypatch.setenv("PII_FILTERS", " PHONE_NUMBER, EMAIL_ADDRESS,PHONE_NUMBER ")
+    config.load_settings.cache_clear()
     configured = JapanesePiiMasker()
     assert configured.filters == ["PHONE_NUMBER", "EMAIL_ADDRESS"]
     result = configured.mask("山田太郎様、電話090-1234-5678、taro@example.com")
@@ -22,6 +23,7 @@ def test_dotenv_filters_and_settings(masker):
         "PII_FILTERS=EMAIL_ADDRESS\nSPACY_MODEL=ja_core_news_sm\n"
         "PII_SCORE_THRESHOLD=0.8\n", encoding="utf-8",
     )
+    config.load_settings.cache_clear()
     configured = JapanesePiiMasker()
     assert configured.spacy_model == "ja_core_news_sm"
     assert configured.score_threshold == 0.8
@@ -38,6 +40,7 @@ def test_environment_overrides_dotenv(masker, monkeypatch):
     monkeypatch.setenv("PII_FILTERS", "PHONE_NUMBER")
     monkeypatch.setenv("SPACY_MODEL", "ja_core_news_lg")
     monkeypatch.setenv("PII_SCORE_THRESHOLD", "0.4")
+    config.load_settings.cache_clear()
     configured = JapanesePiiMasker()
     assert configured.spacy_model == "ja_core_news_lg"
     assert configured.score_threshold == 0.4
@@ -55,6 +58,7 @@ def test_invalid_filters_fail_before_model_loading(monkeypatch, value):
 
 def test_all_documented_filters_supported(masker, monkeypatch):
     monkeypatch.setenv("PII_FILTERS", ",".join(config.ENTITY_LABELS_JA))
+    config.load_settings.cache_clear()
     configured = JapanesePiiMasker()
     assert set(configured.filters) <= set(
         configured._analyzer.get_supported_entities(language="ja")
@@ -63,3 +67,9 @@ def test_all_documented_filters_supported(masker, monkeypatch):
 
 def test_nlp_length_limit(masker):
     assert masker._analyzer.nlp_engine.nlp["ja"].max_length >= 1024 ** 2
+
+
+def test_load_settings_is_cached():
+    from pii_masking.config import load_settings
+
+    assert load_settings() is load_settings()

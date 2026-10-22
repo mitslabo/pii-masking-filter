@@ -1,6 +1,7 @@
 """Masking labels and NER exclusions ported from kouki6951/pii-masking-chat."""
 
 import os
+from functools import lru_cache
 from pathlib import Path
 
 from dotenv import dotenv_values
@@ -9,8 +10,9 @@ MAX_TEXT_LENGTH = 1024 ** 2
 DOTENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
 
+@lru_cache(maxsize=1)
 def load_settings() -> dict[str, str | None]:
-    """Read repository-local .env; explicit environment variables take priority."""
+    """Read repository-local .env once per process; explicit environment variables take priority."""
     return {**dotenv_values(DOTENV_PATH, interpolate=False), **os.environ}
 
 

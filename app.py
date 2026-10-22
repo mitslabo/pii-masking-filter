@@ -11,15 +11,17 @@ from pydantic import BaseModel, ConfigDict, Field
 from pii_masking.config import MAX_TEXT_LENGTH, load_settings
 from pii_masking.masker import JapanesePiiMasker, get_masker
 
+_SETTINGS = load_settings()
+_API_KEY = _SETTINGS.get("API_KEY")
+
 
 def require_api_key(
     credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> None:
-    api_key = load_settings().get("API_KEY")
-    if not api_key:
+    if not _API_KEY:
         return
     if credentials is None or not compare_digest(
-        credentials.credentials.encode("utf-8"), api_key.encode("utf-8"),
+        credentials.credentials.encode("utf-8"), _API_KEY.encode("utf-8"),
     ):
         raise HTTPException(
             status_code=401, detail="unauthorized",
