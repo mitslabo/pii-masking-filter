@@ -25,14 +25,43 @@ from .japanese_recognizers import get_japanese_recognizers
 
 
 _CHUNK_TARGET_BYTES = 32 * 1024
+# SudachiPy rejects any single input above 49149 bytes ("Input is too long"),
+# regardless of spaCy's max_length, so oversized lines must be hard-split.
+_MAX_CHUNK_BYTES = 40 * 1024
+
+
+def _split_oversized_line(line: str) -> list[str]:
+    """Split one line into pieces <= _MAX_CHUNK_BYTES utf-8 bytes without
+    cutting a multi-byte character."""
+    parts: list[str] = []
+    cur: list[str] = []
+    size = 0
+    for ch in line:
+        ch_size = len(ch.encode("utf-8"))
+        if cur and size + ch_size > _MAX_CHUNK_BYTES:
+            parts.append("".join(cur))
+            cur = []
+            size = 0
+        cur.append(ch)
+        size += ch_size
+    if cur:
+        parts.append("".join(cur))
+    return parts
 
 
 def _iter_text_chunks(text: str) -> Iterator[str]:
-    """Keep complete lines, including single lines larger than the byte target."""
+    """Keep complete lines; hard-split single lines larger than the byte limit."""
     lines = []
     size = 0
     for line in text.splitlines(keepends=True):
         line_size = len(line.encode("utf-8"))
+        if line_size > _MAX_CHUNK_BYTES:
+            if lines:
+                yield "".join(lines)
+                lines = []
+                size = 0
+            yield from _split_oversized_line(line)
+            continue
         if lines and size + line_size > _CHUNK_TARGET_BYTES:
             yield "".join(lines)
             lines = []
@@ -80,6 +109,10 @@ class JapanesePiiMasker:
             raise ValueError("PII_SCORE_THRESHOLD must be between 0 and 1")
         self.filters = parse_filters(settings.get("PII_FILTERS"))
         self._analyzer = self._build_analyzer()
+        # SudachiPy's tokenizer is not thread-safe ("Tokenizer is already in
+        # use... guard calls externally"); uvicorn serves sync endpoints from a
+        # threadpool, so all analyzer calls must be serialized per process.
+        self._analyzer_lock = Lock()
 
     def _build_analyzer(self) -> AnalyzerEngine:
         # Fail locally rather than letting Presidio download models at request time.
@@ -129,10 +162,11 @@ class JapanesePiiMasker:
         entities = []
         offset = 0
         for chunk in _iter_text_chunks(text):
-            results = self._analyzer.analyze(
-                text=chunk, language="ja", score_threshold=self.score_threshold,
-                entities=self.filters,
-            )
+            with self._analyzer_lock:
+                results = self._analyzer.analyze(
+                    text=chunk, language="ja", score_threshold=self.score_threshold,
+                    entities=self.filters,
+                )
             results = [
                 result for result in results
                 if not (

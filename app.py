@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from secrets import compare_digest
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -13,6 +14,8 @@ from pii_masking.masker import JapanesePiiMasker, get_masker
 
 _SETTINGS = load_settings()
 _API_KEY = _SETTINGS.get("API_KEY")
+
+logger = logging.getLogger("pii_masking.app")
 
 
 def require_api_key(
@@ -62,7 +65,10 @@ async def validation_error_handler(request, exc) -> JSONResponse:
 def _masker() -> JapanesePiiMasker:
     try:
         return get_masker()
-    except Exception:
+    except Exception as exc:
+        # Privacy contract (see test_api): never log exception messages or
+        # tracebacks — they may echo user PII. Class name only.
+        logger.error("masker initialization failed: %s", type(exc).__qualname__)
         raise HTTPException(status_code=503, detail="masker_unavailable") from None
 
 
@@ -81,5 +87,7 @@ def mask(payload: MaskRequest) -> MaskResponse:
             has_pii=result.has_pii,
             entity_count=len(result.entities),
         )
-    except Exception:
+    except Exception as exc:
+        # Privacy contract (see test_api): class name only, never the message.
+        logger.error("masking failed: %s", type(exc).__qualname__)
         raise HTTPException(status_code=500, detail="masking_failed") from None
