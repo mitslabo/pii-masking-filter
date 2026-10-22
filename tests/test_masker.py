@@ -204,3 +204,35 @@ def test_singleton_concurrent_initialization(monkeypatch):
         results = list(pool.map(lambda _: module.get_masker(), range(8)))
     assert all(result is instance for result in results)
     factory.assert_called_once_with()
+
+
+def test_chunker_splits_oversized_single_line():
+    from pii_masking.masker import _iter_text_chunks, _MAX_CHUNK_BYTES
+    text = "あ" * 40000 + "x" * 30000  # > 49149 utf-8 bytes, one line
+    chunks = list(_iter_text_chunks(text))
+    assert len(chunks) > 1
+    assert all(len(c.encode("utf-8")) <= _MAX_CHUNK_BYTES for c in chunks)
+    assert "".join(chunks) == text
+
+
+def test_mask_oversized_single_line(masker):
+    email = "taro@example.com"
+    text = "a" * 60000 + " メールは" + email + "です" + "あ" * 30000  # one line
+    result = masker.mask(text)
+    assert result.has_pii
+    assert email not in result.masked_text
+    assert "<メールアドレス_1>" in result.masked_text
+    ent = result.entities[0]
+    assert text[ent.start:ent.end] == email
+    assert ent.start == 60000 + len(" メールは")
+
+
+def test_concurrent_masking(masker):
+    texts = [
+        "メールはtaro@example.comです",
+        "電話は090-1234-5678です",
+        "ただのテキストです",
+    ] * 10
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        results = list(ex.map(masker.mask, texts))
+    assert sum(1 for r in results if r.has_pii) == 20
